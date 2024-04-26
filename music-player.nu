@@ -13,7 +13,10 @@ let directory_count = ($dirs | length)
 
 
 
-def get-flac-seconds [bytes: binary debug?: bool = false] {
+def get-flac-seconds [
+  bytes: binary
+  flac_debug?: bool = false
+] {
   # https://xiph.org/flac/format.html
   # does it look like a .flac file?
   if ($bytes | bytes starts-with ("fLaC" | into binary)) != true {
@@ -66,7 +69,7 @@ def get-flac-seconds [bytes: binary debug?: bool = false] {
   let bits_per_sample = $sample_data | bits shr 36 | bits and 0x1f | each { |it| $it + 1 }
   let sample_count = $sample_data | bits and 0xfffffffff
 
-  if $debug {
+  if $flac_debug {
     print $"rate ($sample_rate) count ($sample_count) bits/sample ($bits_per_sample)"
   }
 
@@ -122,8 +125,6 @@ def main [n: int
     print ($flac_file_record | select name | insert time $"($time_text)")
 
     # if seconds == (-1) do something - probably skip and issue error msg
-
-
 
     # how to invoke with powershell, but use cross-platform start
     #powershell -command $"start-process \"($flac_name)\""
