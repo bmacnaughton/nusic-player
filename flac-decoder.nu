@@ -169,5 +169,5 @@ def decode_vorbis_comment [
     let framing_bit = $bytes | bytes at $current..($current + 1) | into int --endian little
     print $"framing_bit ($framing_bit)"
 
-    $comments
+    $comments | parse "{key}={value}"
 }
