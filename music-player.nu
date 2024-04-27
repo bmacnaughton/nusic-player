@@ -82,11 +82,12 @@ def main [n: int
   mut x = 0;
   while $x < $n {
     $x = $x + 1
+    # choose a random artist (directory)
     let r = (random int ..<$directory_count)
 
     if $debug { print "DEBUG MODE" }
 
-    # get all
+    # get all flac files in the artist's directory
     let name = ($dirs | get $r | get name)
     let pattern = $"($name)/**/*.flac"
 
