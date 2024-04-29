@@ -78,13 +78,14 @@ export def "choose-deprecated song" [song: string] {
   $selected
 }
 
+# try: choose song fuck | get name | input list 'song?' | each { |it| start $it}
 export def "choose song" [song: string] {
   let flacs = ls ($"($music_dir)/**/*.flac" | into glob)
   print $"found ($flacs | length) songs"
 
   let selected = $flacs | where ( $it | get name | is-known-format-flac $song )
 
-  $selected
+  $selected | get name
 }
 
 
