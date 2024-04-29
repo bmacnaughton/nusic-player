@@ -12,6 +12,66 @@ let directory_count = ($dirs | length)
 # play random albums|artists instead of songs
 
 
+def main [n: int
+  --debug (-d)
+] {
+  mut x = 0;
+  while $x < $n {
+    $x = $x + 1
+    # choose a random artist (directory)
+    let r = (random int ..<$directory_count)
+
+    if $debug { print "DEBUG MODE" }
+
+    # get all flac files in the artist's directory
+    let name = ($dirs | get $r | get name)
+    let pattern = $"($name)/**/*.flac"
+
+    # this can fail if there are no .flac files (like willie nelson's mp3s)
+    # todo - handle
+    let all_flacs = try { ls ($pattern | into glob) }
+    if $all_flacs == null {
+      print $"no .flac files found for ($name)"
+      continue;
+    }
+
+    let ix = (random int ..<($all_flacs | length))
+
+    let flac_file_record = ($all_flacs | get $ix)
+    if $debug { print $flac_file_record }
+
+    # -wait gives an error.
+    #powershell -command $"start-process -wait \"($all_flacs | get $ix | get name)\""
+    let flac_name = ($all_flacs | get $ix | get name)
+
+    let bytes = open --raw $'($flac_name)'
+
+    if $debug { print $"bytes length: ($bytes | bytes length)" }
+
+    # calculate number of seconds
+    let seconds = get-flac-seconds ($bytes | into binary) $debug
+
+    let raw = $seconds | math round --precision 2
+    # make between 1 and 2 seconds longer
+    let seconds = ($seconds | math ceil) + 1
+    if $debug { print $"calculated wait time ($seconds)" }
+
+    let time = ($"($seconds)sec" | into duration --unit sec)
+    let time_text = $"raw ($raw) adjusted: ($seconds) secs \(($time)\)"
+
+    print ($flac_file_record | select name | insert time $"($time_text)")
+
+    # if seconds == (-1) do something - probably skip and issue error msg
+
+    # how to invoke with powershell, but use cross-platform start
+    #powershell -command $"start-process \"($flac_name)\""
+    start $"($flac_name)"
+
+    sleep ($"($seconds)sec" | into duration)
+  }
+}
+
+
 
 def get-flac-seconds [
   bytes: binary
@@ -75,63 +135,3 @@ def get-flac-seconds [
 
   $sample_count / $sample_rate
 }
-
-def main [n: int
-  --debug (-d)
-] {
-  mut x = 0;
-  while $x < $n {
-    $x = $x + 1
-    # choose a random artist (directory)
-    let r = (random int ..<$directory_count)
-
-    if $debug { print "DEBUG MODE" }
-
-    # get all flac files in the artist's directory
-    let name = ($dirs | get $r | get name)
-    let pattern = $"($name)/**/*.flac"
-
-    # this can fail if there are no .flac files (like willie nelson's mp3s)
-    # todo - handle
-    let all_flacs = try { ls ($pattern | into glob) }
-    if $all_flacs == null {
-      print $"no .flac files found for ($name)"
-      continue;
-    }
-
-    let ix = (random int ..<($all_flacs | length))
-
-    let flac_file_record = ($all_flacs | get $ix)
-    if $debug { print $flac_file_record }
-
-    # -wait gives an error.
-    #powershell -command $"start-process -wait \"($all_flacs | get $ix | get name)\""
-    let flac_name = ($all_flacs | get $ix | get name)
-
-    let bytes = open --raw $'($flac_name)'
-
-    if $debug { print $"bytes length: ($bytes | bytes length)" }
-
-    # calculate number of seconds
-    let seconds = get-flac-seconds ($bytes | into binary) $debug
-
-    let raw = $seconds | math round --precision 2
-    # make between 1 and 2 seconds longer
-    let seconds = ($seconds | math ceil) + 1
-    if $debug { print $"calculated wait time ($seconds)" }
-
-    let time = ($"($seconds)sec" | into duration --unit sec)
-    let time_text = $"raw ($raw) adjusted: ($seconds) secs \(($time)\)"
-
-    print ($flac_file_record | select name | insert time $"($time_text)")
-
-    # if seconds == (-1) do something - probably skip and issue error msg
-
-    # how to invoke with powershell, but use cross-platform start
-    #powershell -command $"start-process \"($flac_name)\""
-    start $"($flac_name)"
-
-    sleep ($"($seconds)sec" | into duration)
-  }
-}
-
