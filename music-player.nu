@@ -11,6 +11,8 @@ let directory_count = ($dirs | length)
 #  with select (using nu table)
 # play random albums|artists instead of songs
 
+use flac-decoder.nu decode-flac
+
 
 def main [n: int
   --debug (-d)
@@ -44,24 +46,47 @@ def main [n: int
     #powershell -command $"start-process -wait \"($all_flacs | get $ix | get name)\""
     let flac_name = ($all_flacs | get $ix | get name)
 
-    let bytes = open --raw $'($flac_name)'
+    let flac_info = decode-flac $flac_name
 
-    if $debug { print $"bytes length: ($bytes | bytes length)" }
+    if $debug { print $flac_info }
 
-    # calculate number of seconds
-    let seconds = get-flac-seconds ($bytes | into binary) $debug
+    if $flac_info.0.type != 'STREAMINFO' {
+      # error
+      return "error- No STREAMINFO in .flac file"
+    }
 
-    let raw = $seconds | math round --precision 2
-    # make between 1 and 2 seconds longer
-    let seconds = ($seconds | math ceil) + 1
-    if $debug { print $"calculated wait time ($seconds)" }
+    mut streaminfo = [];
+    mut vorbis = [];
+
+    for info in $flac_info {
+      if $info.type == "VORBIS_COMMENT" {
+        $vorbis = $info.contents
+      } else if $info.type == 'STREAMINFO' {
+        $streaminfo = $info.contents;
+      }
+    }
+
+    if $debug {
+      print $streaminfo
+      if ($vorbis | is-not-empty) {
+        print $vorbis
+      }
+    }
+
+    let raw_seconds = ($streaminfo.sample_count / $streaminfo.sample_rate)
+    let raw = $raw_seconds | math round --precision 2
+    let seconds = ($raw_seconds | math ceil) + 1
 
     let time = ($"($seconds)sec" | into duration --unit sec)
     let time_text = $"raw ($raw) adjusted: ($seconds) secs \(($time)\)"
+    let default_description = ($flac_file_record | select name | insert time $"($time_text)")
 
-    print ($flac_file_record | select name | insert time $"($time_text)")
+    if $debug {
+      print $default_description
+    }
 
-    # if seconds == (-1) do something - probably skip and issue error msg
+    let description = make-description $vorbis $default_description
+    print ($description | insert time $"($time_text)")
 
     # how to invoke with powershell, but use cross-platform start
     #powershell -command $"start-process \"($flac_name)\""
@@ -71,67 +96,34 @@ def main [n: int
   }
 }
 
-
-
-def get-flac-seconds [
-  bytes: binary
-  flac_debug?: bool = false
+def make-description [
+  vorbis: table,
+  default_description
 ] {
-  # https://xiph.org/flac/format.html
-  # does it look like a .flac file?
-  if ($bytes | bytes starts-with ("fLaC" | into binary)) != true {
-    return (-1)
+  mut item_count = 0
+  mut artist: string = ''
+  mut album: string = ''
+  mut title: string = ''
+
+  for comment in $vorbis {
+    if $comment.key == 'artist' {
+      $artist = $comment.value
+    } else if $comment.key == 'album' {
+      $album = $comment.value
+    } else if $comment.key == 'title' {
+      $title = $comment.value
+    } else {
+      continue
+    }
+    $item_count += 1
+    if $item_count >= 3 {
+      break;
+    }
   }
 
-  # verify stream-info block
-  let block_header = $bytes | bytes at 4..8 | into int --endian big
-
-  # the first header must be a STREAMINFO header. we don't care about
-  # the high order bit (indicating last metadata block) because it's
-  # unlikely to be set, but if it is, it doesn't matter - we're not
-  # displaying any metadata.
-  if ($block_header | bits and 0x7f000000) != 0 {
-    return (-1)
+  if $item_count < 3 {
+    $default_description
+  } else {
+    { artist: $artist, album: $album, song: $title}
   }
-
-  # STREAMINFO headers should be 34 bytes long
-  if ($block_header | bits and 0xffffff) != 34 {
-    return (-1)
-  }
-
-  # byte indexes + STREAMINFO header_base = 8
-
-  # byte index 0
-  # <16>	The minimum block size (in samples) used in the stream.
-  # byte index 2
-  # <16>	The maximum block size (in samples) used in the stream. (Minimum blocksize == maximum blocksize) implies a fixed-blocksize stream.
-  # byte index 4
-  # <24>	The minimum frame size (in bytes) used in the stream. May be 0 to imply the value is not known.
-  # byte index 7
-  # <24>	The maximum frame size (in bytes) used in the stream. May be 0 to imply the value is not known.
-  # byte index 10
-  # <20>	Sample rate in Hz. Though 20 bits are available, the maximum sample rate is limited by the structure of frame headers to 655350Hz. Also, a value of 0 is invalid.
-  # <3>	(number of channels)-1. FLAC supports from 1 to 8 channels
-  # <5>	(bits per sample)-1. FLAC supports from 4 to 32 bits per sample.
-  # <36>	Total samples in stream. 'Samples' means inter-channel sample, i.e. one second of 44.1Khz audio will have 44100 samples regardless of the number of channels. A value of zero here means the number of total samples is unknown.
-  # byte index 18
-  # <128>	MD5 signature of the unencoded audio data. This allows the decoder to determine if an error exists in the audio data even when the error does not result in an invalid bitstream.
-  # NOTES
-  # FLAC specifies a minimum block size of 16 and a maximum block size of 65535, meaning the bit patterns corresponding to the numbers 0-15 in the minimum blocksize and maximum blocksize fields are invalid.
-  # byte index 34
-  # whatever comes next
-
-  # calculate the time using <36> Total samples divided by <20> Sample rate in Hz.
-  let sample_bytes = $bytes | bytes at (10 + 8)..(18 + 8)
-  let sample_data = $bytes | bytes at (10 + 8)..(18 + 8) | into int --endian big
-
-  let sample_rate = $sample_data | bits shr (64 - 20)
-  let bits_per_sample = $sample_data | bits shr 36 | bits and 0x1f | each { |it| $it + 1 }
-  let sample_count = $sample_data | bits and 0xfffffffff
-
-  if $flac_debug {
-    print $"rate ($sample_rate) count ($sample_count) bits/sample ($bits_per_sample)"
-  }
-
-  $sample_count / $sample_rate
 }

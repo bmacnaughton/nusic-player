@@ -40,7 +40,7 @@ def main [
       2 => { name: "APPLICATION", contents: [] },
       3 => { name: "SEEKTABLE", contents: [] },
       4 => {
-        { name: "VORBIS_COMMENT", contents: (decode_vorbis_comment $bytes ($block_index + 4) -d) }
+        { name: "VORBIS_COMMENT", contents: (decode_vorbis_comment $bytes ($block_index + 4)) }
       }
       5 => { name: "CUESHEET", contents: [] },
       6 => { name: "PICTURE", contents: [] },
