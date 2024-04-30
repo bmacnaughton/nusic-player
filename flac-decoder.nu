@@ -1,17 +1,8 @@
 #!/usr/bin/env nu
-# script to play random music
 
-let dirs = (ls z:/flac | where type == dir)
-
-let directory_count = ($dirs | length)
-
-# ideas
-# maximum length song
-# exclude/include classical/comedy
-# dynamic matches on string: artist/album/song
-#  with select (using nu table)
-# play random albums|artists instead of songs
-
+export def decode-flac [file: string] {
+  main $file
+}
 
 
 def main [
@@ -26,6 +17,8 @@ def main [
     return (-1)
   }
 
+  mut headers = []
+
   # first byte of next block
   mut block_index = 4
 
@@ -35,7 +28,6 @@ def main [
 
   loop {
     mut block_header = $bytes | bytes at $block_index..($block_index + 4) | into int --endian big
-    print $"raw block_header ($block_header | fmt | get lowerhex)"
 
     let block_type = $block_header | bits shr 24 -n 4 | bits and 0x7f
     let block = match $block_type {
@@ -48,7 +40,7 @@ def main [
       2 => { name: "APPLICATION", contents: [] },
       3 => { name: "SEEKTABLE", contents: [] },
       4 => {
-        { name: "VORBIS_COMMENT", contents: (decode_vorbis_comment $bytes ($block_index + 4)) }
+        { name: "VORBIS_COMMENT", contents: (decode_vorbis_comment $bytes ($block_index + 4) -d) }
       }
       5 => { name: "CUESHEET", contents: [] },
       6 => { name: "PICTURE", contents: [] },
@@ -57,24 +49,20 @@ def main [
     }
     let block_length = $block_header | bits and 0xffffff
 
-    print $"block ($block.name) ($block_length) bytes"
-    if ($block.contents | is-empty) == false {
-      print $block.contents
-    }
-
-    #print $"block: ($block_name):($block_type), length ($block_length)"
-    #if $block_name == "STREAMINFO" {
-    #  print (decode_streaminfo $bytes ($block_index + 4))
-    #} else if $block_name == "VORBIS_COMMENT" {
-    #  # + 8 because not incremented past the header yet
-    #  #print ($bytes | bytes at ($block_index + 8)..($block_index + $block_length + 8))
-    #  print (decode_vorbis_comment $bytes ($block_index + 4))
-    #}
-
+    $headers = ($headers | append {
+      type: $block.name,
+      contents: $block.contents,
+      raw: {
+        header: ($block_header | fmt | get lowerhex),
+        length: ($block_header | bits and 0xffffff),
+      }
+    })
 
     # if the high order bit is set this is the last header
     if ($block_header | bits and 0x80000000) != 0 {
-      print $"($block_header | fmt | get lowerhex)"
+      if $debug {
+        print $"last header ($block_header | fmt | get lowerhex)"
+      }
       break
     }
 
@@ -83,14 +71,17 @@ def main [
       break
     }
 
+    # skip to next block (header bytes + block bytes)
     $block_index += 4 + $block_length
   }
 
+  $headers
 }
 
 def decode_streaminfo [
   bytes: binary
   base: int
+  --debug (-d)
  ] {
   # byte indexes + STREAMINFO header_base = 8
 
@@ -113,7 +104,9 @@ def decode_streaminfo [
   # FLAC specifies a minimum block size of 16 and a maximum block size of 65535, meaning the bit patterns corresponding to the numbers 0-15 in the minimum blocksize and maximum blocksize fields are invalid.
   # byte index 34
   # whatever comes next
-  print $"decoding with base ($base)"
+  if $debug {
+    print $"decoding with base ($base)"
+  }
 
   let sample_data_64 = $bytes | bytes at ($base + 10)..($base + 18) | into int --endian big
   let sample_rate = $sample_data_64 | bits shr (64 - 20)
@@ -128,6 +121,7 @@ def decode_streaminfo [
 def decode_vorbis_comment [
   bytes: binary
   base: int
+  --debug (-d)
 ] {
   # NOTE: the 32-bit field lengths are little-endian coded according to the vorbis spec, as opposed to the usual
   # big-endian coding of fixed-length integers in the rest of FLAC.
@@ -165,9 +159,16 @@ def decode_vorbis_comment [
       $comments = ($comments | append $comment_string)
     }
 
-    # check framing bit for fun. standard says "read single bit" but it looks like it's "read single byte"
-    let framing_bit = $bytes | bytes at $current..($current + 1) | into int --endian little
-    print $"framing_bit ($framing_bit)"
+    # check framing bit for fun. standard says "read single bit" and that's what the
+    # code looks like, but comments have to end on a byte boundary, so "what is the
+    # next bit" for vorbis comments. idk. not sure it matters much.
+    if $debug {
+      let framing_bit = $bytes | bytes at $current..($current + 1) | into int --endian little
+      print $"framing_bit ($framing_bit)"
+    }
 
-    $comments | parse "{key}={value}"
+    # return { key, value } records with lowercase key
+    $comments | parse "{key}={value}" | each {
+      |it| {key: ($it.key | str downcase), value: $it.value }
+    }
 }
