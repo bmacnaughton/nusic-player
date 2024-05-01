@@ -16,6 +16,7 @@ use flac-decoder.nu decode-flac
 
 def main [n: int
   --debug (-d)
+  --flac-details (-f)
 ] {
   mut x = 0;
   while $x < $n {
@@ -66,7 +67,7 @@ def main [n: int
       }
     }
 
-    if $debug {
+    if $debug or $flac_details {
       print $streaminfo
       if ($vorbis | is-not-empty) {
         print $vorbis
@@ -101,29 +102,73 @@ def make-description [
   default_description
 ] {
   mut item_count = 0
-  mut artist: string = ''
-  mut album: string = ''
-  mut title: string = ''
+  mut artist = [];
+  mut album = [];
+  mut title = [];
+  mut genre = [];
+  mut composer = [];
+  mut albumartist = [];
+
+  # consider - loop through and find ALL artist (classical often has
+  # soloist/orchestra/conductor). how to present?
+  # also artist three times: Al Di Meola, John McLaughlin, Paco DeLucia
+  #
+  # add composer if present
+  # consider album artist (make first 'cause probably dupe of artist) also
+  # when guest artists, want album artist
+  #
+  # often multiple style
+  # sometimes no genre (but genre tends to be more generic when present)
+  # sometimes genre and styles
+  # sometimes multiple composer
 
   for comment in $vorbis {
     if $comment.key == 'artist' {
-      $artist = $comment.value
+      $artist = ($artist | append $comment.value)
     } else if $comment.key == 'album' {
-      $album = $comment.value
+      $album = ($album | append $comment.value)
     } else if $comment.key == 'title' {
-      $title = $comment.value
+      $title = ($title | append $comment.value)
+    } else if $comment.key == 'genre' {
+      $genre = ($genre | append $comment.value)
+    } else if $comment.key == 'composer' {
+      $composer = ($composer | append $comment.value)
+    } else if $comment.key == 'albumartist' {
+      $albumartist = ($albumartist | append $comment.value)
     } else {
       continue
     }
     $item_count += 1
-    if $item_count >= 3 {
-      break;
-    }
   }
 
-  if $item_count < 3 {
-    $default_description
-  } else {
-    { artist: $artist, album: $album, song: $title}
+  if ($artist | is-empty) and ($album | is-empty) and ($title | is-empty) {
+    return $default_description;
   }
+
+  # if genre is/contains classical, play entire album? songs matching pattern?
+
+  mut description = {};
+  if ($albumartist | is-not-empty) {
+    $description = ($description | insert 'album artist' (join $albumartist));
+  }
+  mut description = {
+    artist: (join $artist),
+    album: (join $album),
+    song: (join $title),
+  }
+
+  if ($composer | length) == 1 {
+    $description = ($description | insert 'composer' $composer.0)
+  } else if ($composer | length) >= 2 {
+    $description = ($description | insert 'composers' (join $composer));
+  }
+
+  $description
+}
+
+def join [
+  items: list
+  joiner: string = '; '
+] {
+  $items | str join $joiner
 }
