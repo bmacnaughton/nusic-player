@@ -145,7 +145,19 @@ def make-description [
     return $default_description;
   }
 
+  let classical = $genre | any { |it| ($it | str downcase) == 'classical' }
+
   # if genre is/contains classical, play entire album? songs matching pattern?
+  # - composer
+  # - artist
+  # - if conductor != artist, conductor
+  # - orchestra
+  # also, select all pieces of music that start with Symphony blah blah Op. #
+  # ^^^ hard part due to no consistency, different numbering, etc. but usually
+  # consistent on a single album. key - how many characters to match on at start
+  # of the song title/name?
+  # Key on Op, BWV, etc?
+  # next step - read all classical items and collate tags
 
   mut description = {};
   if ($albumartist | is-not-empty) {
